@@ -169,6 +169,7 @@ static const size_t  JFRMaxFrameSize        = 32;
 - (void)writeString:(NSString*)string {
     //对string进行容错判断
     if(string) {
+        //标记为你文本信息，并且发送出去
         [self dequeueWrite:[string dataUsingEncoding:NSUTF8StringEncoding]
                   withCode:JFROpCodeTextFrame];
     }
@@ -745,13 +746,14 @@ static const size_t  JFRMaxFrameSize        = 32;
     return NO;
 }
 /////////////////////////////////////////////////////////////////////////////
--(void)dequeueWrite:(NSData*)data withCode:(JFROpCode)code {
+-(void)dequeueWrite:(NSData*)data withCode:(JFROpCode)code
+{
     //判断是否处于链接阶段
     if(!self.isConnected)
     {
         return;
     }
-    //懒加载初始化NSOperationQueue对象,并且设置相应的属性
+    //"懒加载"初始化NSOperationQueue对象,并且设置相应的属性,这是一个操作队列对象
     if(!self.writeQueue)
     {
         self.writeQueue = [[NSOperationQueue alloc] init];
@@ -759,16 +761,20 @@ static const size_t  JFRMaxFrameSize        = 32;
     }
     
     __weak typeof(self) weakSelf = self;
+    //输入操作对象
     [self.writeQueue addOperationWithBlock:^{
         if(!weakSelf || !weakSelf.isConnected)
         {
             return;
         }
         typeof(weakSelf) strongSelf = weakSelf;
+        //注意是int64_t类型的offset，
         uint64_t offset = 2; //how many bytes do we need to skip for the header
-        //下方返回的是通用指针，故需要转型
+        //下方返回的是通用指针，故需要转型,uint8_t指的是八个字节的数据类型
         uint8_t *bytes = (uint8_t*)[data bytes];
+        //lenghth方法返回的就是NSInteger，这个数据类型在64位上就是64位的数据类型,所以需要用uint64_t来接受
         uint64_t dataLength = data.length;
+        //(32+x)*8*bit=>
         NSMutableData *frame = [[NSMutableData alloc] initWithLength:(NSInteger)(dataLength + JFRMaxFrameSize)];
         uint8_t *buffer = (uint8_t*)[frame mutableBytes];
         //code是JFROpCode类型的
@@ -790,15 +796,21 @@ static const size_t  JFRMaxFrameSize        = 32;
          static const size_t  JFRMaxFrameSize        = 32;
          **/
         //按位或操作，倒数位7（即第八位）与code进行按位与操作,一般情况下这个为1，否则表示为最后一个分片
+        //具体来说是：Fin为置为1，剩下的三个RSV设置为0，然后，opcode领域都设置为0，并且有一个JFROpCode类型的枚举用来
+        //将opcode域的不同位设置成相应的1数字->以此来表明数据的类型,通过与不同枚举之间进行按位与的操作，来进行设置
         buffer[0] = JFRFinMask | code;
-        //下方是与websocket的格式有关系
+        //下方是与websocket的格式有关系,datalength为125、126、127的效果均不同
+        //如果数据长度小于126，那么接下来的8位则表示为数据的长度-因为8位最大可表示的十进制数字可以包含125
         if(dataLength < 126)
         {
+            
             //0与任何数据进行按位与都得到那个数据
             //注意buffer是一个uint8_t *类型的数据buffer[1]不是位于第2位，而是位于第9位开始后的八位的范围,
             buffer[1] |= dataLength;
             // 65535 =UINT16_MAX位于stdint.h中
-        } else if(dataLength <= UINT16_MAX)
+        }
+        //如果16位的二进制可以表示现有的长度，那么则接下来的八位写成126
+        else if(dataLength <= UINT16_MAX)
         {
             buffer[1] |= 126;
             *((uint16_t *)(buffer + offset)) = CFSwapInt16BigToHost((uint16_t)dataLength);
