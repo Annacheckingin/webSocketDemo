@@ -14,7 +14,7 @@ typedef NS_ENUM(NSInteger,LzgisConnect)
     LzgisConnectNot,
     LzgisConnectYes
 };
-@interface ViewController ()<JFRWebSocketDelegate>
+@interface ViewController ()<JFRWebSocketDelegate,UITextFieldDelegate>
 @property(nonatomic,strong)JFRWebSocket *socket;
 @property(nonatomic,assign)LzgisConnect kisconnect;
 @end
@@ -27,9 +27,17 @@ typedef NS_ENUM(NSInteger,LzgisConnect)
     [self.sendMessage addTarget:self action:@selector(sendMessageAction:) forControlEvents:UIControlEventTouchUpInside];
     [self.disconnected addTarget:self action:@selector(disConnectAction:) forControlEvents:UIControlEventTouchUpInside];
     self.receivedInfor.font=[UIFont systemFontOfSize:11];
+    self.userId.delegate=self;
+    self.theurl.delegate=self;
+    self.theurl.text=@"http://192.168.101.101:8080/websocket/";
     self.receivedInfor.numberOfLines=2;
     self.kisconnect=LzgisConnectNot;
     // Do any additional setup after loading the view.
+}
+-(BOOL)textFieldShouldReturn:(UITextField *)textField
+{
+    [[UIApplication sharedApplication].keyWindow endEditing:YES];
+    return YES;
 }
 -(void)connectAction:(UIButton *)sender
 {

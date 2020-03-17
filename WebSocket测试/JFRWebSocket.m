@@ -157,7 +157,7 @@ static const size_t  JFRMaxFrameSize        = 32;
     {
         weakSelf.isCreated = YES;
         //进行连接前的http请求并且之后升级为websocket链接
-        [weakSelf createHTTPRequest];
+      [weakSelf createHTTPRequest];
         weakSelf.isCreated = NO;
     });
 }
@@ -167,6 +167,7 @@ static const size_t  JFRMaxFrameSize        = 32;
 }
 /////////////////////////////////////////////////////////////////////////////
 - (void)writeString:(NSString*)string {
+    //对string进行容错判断
     if(string) {
         [self dequeueWrite:[string dataUsingEncoding:NSUTF8StringEncoding]
                   withCode:JFROpCodeTextFrame];
@@ -197,9 +198,11 @@ static const size_t  JFRMaxFrameSize        = 32;
 {
     NSString *scheme = [_url.scheme lowercaseString];
     
-    if ([scheme isEqualToString:@"wss"]) {
+    if ([scheme isEqualToString:@"wss"])
+    {
         scheme = @"https";
-    } else if ([scheme isEqualToString:@"ws"]) {
+    } else if ([scheme isEqualToString:@"ws"])
+    {
         scheme = @"http";
     }
     
@@ -218,26 +221,30 @@ static const size_t  JFRMaxFrameSize        = 32;
     //设定HTTP的请求方式
     CFStringRef requestMethod = CFSTR("GET");
     //创造一个基于某种请求方式+url的Http的方法
+    //请求的消息体
     //设置请求行
     CFHTTPMessageRef urlRequest = CFHTTPMessageCreateRequest(kCFAllocatorDefault,
                                                              requestMethod,
                                                              url,
                                                         kCFHTTPVersion1_1);
-    //释放url,因为用不到url了
+    //释放url,因为用不到url了，url已经保存到了消息体中
     CFRelease(url);
     //取得端口号
     NSNumber *port = _url.port;
 //如果端口不存在,那么做容错处理----如果协议的名字为wss或者是https，那么端口号为443，反之则为http，端口为80
-    if (!port) {
+    if (!port)
+    {
         if([self.url.scheme isEqualToString:@"wss"] || [self.url.scheme isEqualToString:@"https"]){
             port = @(443);
-        } else {
+        } else
+        {
             port = @(80);
         }
     }
     NSString *protocols = nil;
     //如果协议的数组中存在元素，那么得到这个数组用","来拼接每一个元素之后得到的字符串
-    if([self.optProtocols count] > 0) {
+    if([self.optProtocols count] > 0)
+    {
         protocols = [self.optProtocols componentsJoinedByString:@","];
     }
     //下面的一系列的C函数都是在创建Http请求的参数,比如第一个就是设置host对应的值
@@ -246,7 +253,7 @@ static const size_t  JFRMaxFrameSize        = 32;
     //headerWSVersionValue=@"13"
     //headerWSKeyName= @"Sec-WebSocket-Key"
     //generateWebSocketKey
-    //设置host以及端口号
+    //设置host以及端口号;
     CFHTTPMessageSetHeaderFieldValue(urlRequest,
                                      (__bridge CFStringRef)headerWSHostName,
                                      (__bridge CFStringRef)[NSString stringWithFormat:@"%@:%@",self.url.host,port]);
@@ -270,7 +277,8 @@ static const size_t  JFRMaxFrameSize        = 32;
     CFHTTPMessageSetHeaderFieldValue(urlRequest,
                                      (__bridge CFStringRef)headerWSConnectionName,
                                      (__bridge CFStringRef)headerWSConnectionValue);
-    if (protocols.length > 0) {
+    if (protocols.length > 0)
+    {
         //加入指定来交流的协议，那么http的请求头也必须进行设置相应的协议版本号
         CFHTTPMessageSetHeaderFieldValue(urlRequest,
                                          (__bridge CFStringRef)headerWSProtocolName,
@@ -292,16 +300,21 @@ static const size_t  JFRMaxFrameSize        = 32;
 #if defined(DEBUG)
     NSLog(@"urlRequest = \"%@\"", urlRequest);
 #endif
+    //转化CF对象为OC对象--一个NSData对象
     NSData *serializedRequest = (__bridge_transfer NSData *)(CFHTTPMessageCopySerializedMessage(urlRequest));
+    //将这个建立websocket的http的请求放入NSStream，并且初始化两个读写流
     [self initStreamsWithData:serializedRequest port:port];
     CFRelease(urlRequest);
 }
 /////////////////////////////////////////////////////////////////////////////
 //Random String of 16 lowercase chars, SHA1 and base64 encoded.
-- (NSString*)generateWebSocketKey {
+- (NSString*)generateWebSocketKey
+{
+    //种子
     NSInteger seed = 16;
     NSMutableString *string = [NSMutableString stringWithCapacity:seed];
-    for (int i = 0; i < seed; i++) {
+    for (int i = 0; i < seed; i++)
+    {
         [string appendFormat:@"%C", (unichar)('a' + arc4random_uniform(25))];
     }
     return [[string dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
@@ -311,23 +324,31 @@ static const size_t  JFRMaxFrameSize        = 32;
 - (void)initStreamsWithData:(NSData*)data port:(NSNumber*)port {
     CFReadStreamRef readStream = NULL;
     CFWriteStreamRef writeStream = NULL;
+    //绑定url的主机和端口以及读写流
     CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)self.url.host, [port intValue], &readStream, &writeStream);
-    
+    //下方都是将普通的CF对象转化为OC对象
     self.inputStream = (__bridge_transfer NSInputStream *)readStream;
     self.inputStream.delegate = self;
     self.outputStream = (__bridge_transfer NSOutputStream *)writeStream;
     self.outputStream.delegate = self;
-    if([self.url.scheme isEqualToString:@"wss"] || [self.url.scheme isEqualToString:@"https"]) {
+    //如果读写流都涉及安全相关的，那么对读写流进行设置
+    if([self.url.scheme isEqualToString:@"wss"] || [self.url.scheme isEqualToString:@"https"])
+    {
         [self.inputStream setProperty:NSStreamSocketSecurityLevelNegotiatedSSL forKey:NSStreamSocketSecurityLevelKey];
         [self.outputStream setProperty:NSStreamSocketSecurityLevelNegotiatedSSL forKey:NSStreamSocketSecurityLevelKey];
-    } else {
+    } else
+    {
         self.certValidated = YES; //not a https session, so no need to check SSL pinning
     }
-    if(self.voipEnabled) {
+    if(self.voipEnabled)
+    {
+        //假如支持语音的情况，则一样设置相关的属性
         [self.inputStream setProperty:NSStreamNetworkServiceTypeVoIP forKey:NSStreamNetworkServiceType];
         [self.outputStream setProperty:NSStreamNetworkServiceTypeVoIP forKey:NSStreamNetworkServiceType];
     }
-    if(self.selfSignedSSL) {
+    if(self.selfSignedSSL)
+    {
+        //如果支持不安全的websocket链接
         NSString *chain = (__bridge_transfer NSString *)kCFStreamSSLValidatesCertificateChain;
         NSString *peerName = (__bridge_transfer NSString *)kCFStreamSSLValidatesCertificateChain;
         NSString *key = (__bridge_transfer NSString *)kCFStreamPropertySSLSettings;
@@ -337,13 +358,17 @@ static const size_t  JFRMaxFrameSize        = 32;
         [self.outputStream setProperty:settings forKey:key];
     }
     self.isRunLoop = YES;
+    //
     [self.inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
     [self.outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
     [self.inputStream open];
     [self.outputStream open];
     size_t dataLen = [data length];
+    //将data字节流写入输入流向
     [self.outputStream write:[data bytes] maxLength:dataLen];
-    while (self.isRunLoop) {
+    while (self.isRunLoop)
+    {
+        //使其Runloop运转起来
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
     }
 }
@@ -721,39 +746,72 @@ static const size_t  JFRMaxFrameSize        = 32;
 }
 /////////////////////////////////////////////////////////////////////////////
 -(void)dequeueWrite:(NSData*)data withCode:(JFROpCode)code {
-    if(!self.isConnected) {
+    //判断是否处于链接阶段
+    if(!self.isConnected)
+    {
         return;
     }
-    if(!self.writeQueue) {
+    //懒加载初始化NSOperationQueue对象,并且设置相应的属性
+    if(!self.writeQueue)
+    {
         self.writeQueue = [[NSOperationQueue alloc] init];
         self.writeQueue.maxConcurrentOperationCount = 1;
     }
     
     __weak typeof(self) weakSelf = self;
     [self.writeQueue addOperationWithBlock:^{
-        if(!weakSelf || !weakSelf.isConnected) {
+        if(!weakSelf || !weakSelf.isConnected)
+        {
             return;
         }
         typeof(weakSelf) strongSelf = weakSelf;
         uint64_t offset = 2; //how many bytes do we need to skip for the header
+        //下方返回的是通用指针，故需要转型
         uint8_t *bytes = (uint8_t*)[data bytes];
         uint64_t dataLength = data.length;
         NSMutableData *frame = [[NSMutableData alloc] initWithLength:(NSInteger)(dataLength + JFRMaxFrameSize)];
         uint8_t *buffer = (uint8_t*)[frame mutableBytes];
+        //code是JFROpCode类型的
+        /*
+         JFROpCodeContinueFrame = 0x0,
+         JFROpCodeTextFrame = 0x1,
+         JFROpCodeBinaryFrame = 0x2,
+         //3-7 are reserved.
+         JFROpCodeConnectionClose = 0x8,
+         JFROpCodePing = 0x9,
+         JFROpCodePong = 0xA,
+         **/
+        /*
+         static const uint8_t JFRFinMask             = 0x80;
+         static const uint8_t JFROpCodeMask          = 0x0F;
+         static const uint8_t JFRRSVMask             = 0x70;
+         static const uint8_t JFRMaskMask            = 0x80;
+         static const uint8_t JFRPayloadLenMask      = 0x7F;
+         static const size_t  JFRMaxFrameSize        = 32;
+         **/
+        //按位或操作，倒数位7（即第八位）与code进行按位与操作,一般情况下这个为1，否则表示为最后一个分片
         buffer[0] = JFRFinMask | code;
-        if(dataLength < 126) {
+        //下方是与websocket的格式有关系
+        if(dataLength < 126)
+        {
+            //0与任何数据进行按位与都得到那个数据
+            //注意buffer是一个uint8_t *类型的数据buffer[1]不是位于第2位，而是位于第9位开始后的八位的范围,
             buffer[1] |= dataLength;
-        } else if(dataLength <= UINT16_MAX) {
+            // 65535 =UINT16_MAX位于stdint.h中
+        } else if(dataLength <= UINT16_MAX)
+        {
             buffer[1] |= 126;
             *((uint16_t *)(buffer + offset)) = CFSwapInt16BigToHost((uint16_t)dataLength);
             offset += sizeof(uint16_t);
         } else {
             buffer[1] |= 127;
+            //大小端的转化
             *((uint64_t *)(buffer + offset)) = CFSwapInt64BigToHost((uint64_t)dataLength);
             offset += sizeof(uint64_t);
         }
         BOOL isMask = YES;
         if(isMask) {
+            //这里是设置mask位为1
             buffer[1] |= JFRMaskMask;
             uint8_t *mask_key = (buffer + offset);
             (void)SecRandomCopyBytes(kSecRandomDefault, sizeof(uint32_t), (uint8_t *)mask_key);
