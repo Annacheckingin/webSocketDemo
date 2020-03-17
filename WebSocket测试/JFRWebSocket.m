@@ -774,7 +774,7 @@ static const size_t  JFRMaxFrameSize        = 32;
         uint8_t *bytes = (uint8_t*)[data bytes];
         //lenghth方法返回的就是NSInteger，这个数据类型在64位上就是64位的数据类型,所以需要用uint64_t来接受
         uint64_t dataLength = data.length;
-        //(32+x)*8*bit=>
+        //(32+x)*8*bit=>32+x个byte的容量
         NSMutableData *frame = [[NSMutableData alloc] initWithLength:(NSInteger)(dataLength + JFRMaxFrameSize)];
         uint8_t *buffer = (uint8_t*)[frame mutableBytes];
         //code是JFROpCode类型的
@@ -813,49 +813,90 @@ static const size_t  JFRMaxFrameSize        = 32;
         else if(dataLength <= UINT16_MAX)
         {
             buffer[1] |= 126;
+            //现在设置为126，那么接下来的两个byte都是表示的长度，并且是大端序的，一共16个bit
             *((uint16_t *)(buffer + offset)) = CFSwapInt16BigToHost((uint16_t)dataLength);
+            //相当于offset+2=4
             offset += sizeof(uint16_t);
-        } else {
+        } else
+        {
             buffer[1] |= 127;
+            //首先buffer起点之后的8个字节
             //大小端的转化
+            //现在设置为127，那么接下来的8个byte设置为长度的数据,并且偏移值涨到第十个byte
             *((uint64_t *)(buffer + offset)) = CFSwapInt64BigToHost((uint64_t)dataLength);
+            //offset+8=10
+            //sizeof算得结果的单位是字节
             offset += sizeof(uint64_t);
+            //最大的长度情况已经表示，现在跳到maskingKey开始处
         }
         BOOL isMask = YES;
-        if(isMask) {
-            //这里是设置mask位为1
+        if(isMask)
+        {
+            //这里是设置mask位为1，按位与操作-和上方设置Fin位是一样的情况
             buffer[1] |= JFRMaskMask;
+            //设置指针值指向maskKey的开始
             uint8_t *mask_key = (buffer + offset);
+            //这个是不需要种子的随机数生成器，不同于arcRandom()等伪随机函数--需要提供种子,第二个参数是指明产生随机数的大小-单位是byte,而第三个参数是一个指针，传入这个指针用来只想这个随机数,这个mask_key在websocket的消息当中占用32位-即4个byte
             (void)SecRandomCopyBytes(kSecRandomDefault, sizeof(uint32_t), (uint8_t *)mask_key);
+            //此处也要跳过mask_key区域
             offset += sizeof(uint32_t);
-            
-            for (size_t i = 0; i < dataLength; i++) {
+            //
+            for (size_t i = 0; i < dataLength; i++)
+            {
+                //size_t在这里是算出来是8个byte的大小->为64位
+                //这里的bytes是uint_8类型的的数据-经过转化过后的输入的数据
+                //这里是貌似是编码的过程,sizeof(uint32_t)的结果是4,四个byte中顺序进行按位与的操作（注意一下；32/4=8<=>uint8_t<=>(uint8_t *)mask_key）,一共进行datalength次，声明一下
+                /*
+                 uint8_t *bytes = (uint8_t*)[data bytes];
+                 //lenghth方法返回的就是NSInteger，这个数据类型在64位上就是64位的数据类型,所以需要用uint64_t来接受
+                 uint64_t dataLength = data.length;
+                 **/
+                //uint8_t *buffer
+                //这里datalenghth是按照64位来划分的
+                //在设置好mask_key之后,接下来的payload当中，每8位的实际负载数据当中，得到的是实际的数据和得到的4个的byte大小的mask-key的数据中的
+                //0～3的位置顺序进行按位异或的操作
+                //传入进来的数据被分开位好几部分，每个部分之间的开头都相差64位的距离
                 buffer[offset] = bytes[i] ^ mask_key[i % sizeof(uint32_t)];
+                //uint64_t offset
                 offset += 1;
             }
-        } else {
-            for(size_t i = 0; i < dataLength; i++) {
+        }
+        //如果没有用mask
+        else
+        {
+            for(size_t i = 0; i < dataLength; i++)
+            {
+                //不需要进行按位异或的操作
                 buffer[offset] = bytes[i];
                 offset += 1;
             }
         }
+        //这里total的意思是写入了多少，就会将total递增上写入的字节数，也会调整能够写入的剩下的最大的字节数
         uint64_t total = 0;
         while (true) {
-            if(!strongSelf.isConnected || !strongSelf.outputStream) {
+            if(!strongSelf.isConnected || !strongSelf.outputStream)
+            {
+                //如果没有链接或者没有存在输出stream的情况下
                 break;
             }
             NSInteger len = [strongSelf.outputStream write:([frame bytes]+total) maxLength:(NSInteger)(offset-total)];
-            if(len < 0 || len == NSNotFound) {
+            if(len < 0 || len == NSNotFound)
+            {
                 NSError *error = strongSelf.outputStream.streamError;
-                if(!error) {
+                if(!error)
+                {
                     error = [strongSelf errorWithDetail:@"output stream error during write" code:JFROutputStreamWriteError];
                 }
                 [strongSelf doDisconnect:error];
                 break;
-            } else {
+            } else
+            {
+                //如果输入成功，那么length递增
                 total += len;
             }
-            if(total >= offset) {
+            if(total >= offset)
+            {
+                //如果总数大于来偏移值，那么跳出循环，这里表示已经将得到的数据输入完毕
                 break;
             }
         }
