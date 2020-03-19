@@ -258,6 +258,7 @@
 //制造SecKeyRef，通过证书中的NSData对象得到公钥
 - (SecKeyRef)extractPublicKey:(NSData*)data
 {
+    //得到证书的nSData的引用数据
     SecCertificateRef possibleKey = SecCertificateCreateWithData(nil,(__bridge CFDataRef)data);
     //得到一个信任的事务对象
     SecPolicyRef policy = SecPolicyCreateBasicX509();
@@ -270,30 +271,39 @@
 - (SecKeyRef)extractPublicKeyFromCert:(SecCertificateRef)cert policy:(SecPolicyRef)policy {
     
     SecTrustRef trust;
+    //绑定得到的SectrustRef数据
     SecTrustCreateWithCertificates(cert,policy,&trust);
     SecTrustResultType result = kSecTrustResultInvalid;
+    //判断trust数据的合法性
     SecTrustEvaluate(trust,&result);
     SecKeyRef key = SecTrustCopyPublicKey(trust);
     CFRelease(trust);
+    //返回得到的公钥
     return key;
 }
 /////////////////////////////////////////////////////////////////////////////
+//得到证书链上的每一个证书
 - (NSArray*)certificateChainForTrust:(SecTrustRef)trust
 {
     NSMutableArray *collect = [NSMutableArray array];
-    for(int i = 0; i < SecTrustGetCertificateCount(trust); i++) {
+    for(int i = 0; i < SecTrustGetCertificateCount(trust); i++)
+    {
         SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust,i);
         if(cert) {
+            //需要复制数据
             [collect addObject:CFBridgingRelease(SecCertificateCopyData(cert))];
         }
     }
     return collect;
 }
 /////////////////////////////////////////////////////////////////////////////
+//得到证书链中的每一级的SecKeyRef，并将其添加到一个数组当中，并返回
 - (NSArray*)publicKeyChainForTrust:(SecTrustRef)trust {
     NSMutableArray *collect = [NSMutableArray array];
+    //
     SecPolicyRef policy = SecPolicyCreateBasicX509();
-    for(int i = 0; i < SecTrustGetCertificateCount(trust); i++) {
+    for(int i = 0; i < SecTrustGetCertificateCount(trust); i++)
+    {
         SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust,i);
         SecKeyRef key = [self extractPublicKeyFromCert:cert policy:policy];
         if(key) {

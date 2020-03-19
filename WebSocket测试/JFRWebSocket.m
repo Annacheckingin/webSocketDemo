@@ -146,6 +146,7 @@ static const size_t  JFRMaxFrameSize        = 32;
     }
     
     __weak typeof(self) weakSelf = self;
+    //
     dispatch_async(self.queue, ^
     {
         weakSelf.didDisconnect = NO;
