@@ -24,6 +24,7 @@
 @interface JFRSSLCert ()
 
 @property(nonatomic, strong)NSData *certData;
+//密钥类型
 @property(nonatomic)SecKeyRef key;
 
 @end
@@ -31,7 +32,8 @@
 @implementation JFRSSLCert
 
 /////////////////////////////////////////////////////////////////////////////
-- (instancetype)initWithData:(NSData *)data {
+- (instancetype)initWithData:(NSData *)data
+{
     if(self = [super init]) {
         //是一个NSData对象
         self.certData = data;
@@ -39,7 +41,8 @@
     return self;
 }
 ////////////////////////////////////////////////////////////////////////////
-- (instancetype)initWithKey:(SecKeyRef)key {
+- (instancetype)initWithKey:(SecKeyRef)key
+{
     if(self = [super init]) {
         self.key = key;
     }
@@ -61,7 +64,7 @@
 /////////////////////////////////////////////////////////////////////////////
 
 @interface JFRSecurity ()
-
+//需要对密钥进行加密解密
 @property(nonatomic)BOOL isReady; //is the key processing done?
 //证书数组
 @property(nonatomic, strong)NSMutableArray *certificates;
@@ -102,7 +105,7 @@
           Should the domain name be validated? Default is YES.
           */
         // @property(nonatomic)BOOL validatedDN;
-   
+       //证书是否合法
         self.validatedDN = YES;
         //是否用了publicvkeys的标志位设为YES
         self.usePublicKeys = publicKeys;
@@ -111,10 +114,11 @@
         {
             
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,0), ^{
+                //解密证书会花些时间，所以使用并发队列+异步
                 NSMutableArray *collect = [NSMutableArray array];
                 for(JFRSSLCert *cert in certs)
                 {
-                    //如果certData存在，cer.key不存在的情况下
+                    //如果certData存在，cer.key不存在的情况下-即（服务器的公钥）密钥不存在的情况下(可能是没有提取出来)
                     if(cert.certData && !cert.key)
                     {
                     /**
@@ -138,23 +142,26 @@
                          return key;
                      }
                      */
+                        //得到证书中的key
                         cert.key = [self extractPublicKey:cert.certData];
                     }
                     //如果cert.key存在的话，那么直接添加进入这个collect当中
                     if(cert.key)
                     {
+                        //Cf对象的生命周期转交给ARC保管
                         [collect addObject:CFBridgingRelease(cert.key)];
                     }
                 }
                 //将这个collect赋值为self.certificates
                 self.certificates = collect;
                 //这个isReady的标志位设置为YES
+                //证书的解密已经完成
                 self.isReady = YES;
             });
         }
         else
         {
-//在没有用公钥匙的情况,certificatesi添加的是NSData类型的certData,如果用了公钥的情况下，则添加的是SecKeyRef类型的key
+//在没有用公钥匙的情况,certificatesi直接添加的是NSData类型的certData,如果用了公钥的情况下，则添加的是SecKeyRef类型的key，这歌certData和secKeyRef类型都是位于工具类Security中的属性
             NSMutableArray<NSData*> *collect = [NSMutableArray array];
             for(JFRSSLCert *cert in certs)
             {
@@ -172,49 +179,72 @@
 /////////////////////////////////////////////////////////////////////////////
 - (BOOL)isValid:(SecTrustRef)trust domain:(NSString*)domain {
     int tries = 0;
-    while (!self.isReady) {
+    //等待解密出公钥-如果5000毫秒都没成功-认为是失败-则不合法
+    while (!self.isReady)
+    {
         usleep(1000);
         tries++;
         if(tries > 5) {
             return NO; //doesn't appear it is going to ever be ready...
         }
     }
+    //保证了公钥合法的情况下
     BOOL status = NO;
     SecPolicyRef policy;
+    //
     if(self.validatedDN) {
         policy = SecPolicyCreateSSL(true, (__bridge CFStringRef)domain);
     } else {
         policy = SecPolicyCreateBasicX509();
     }
     SecTrustSetPolicies(trust,policy);
+    //使用公钥的情况
     if(self.usePublicKeys) {
-        for(id serverKey in [self publicKeyChainForTrust:trust]) {
-            for(id keyObj in self.pubKeys) {
-                if([serverKey isEqual:keyObj]) {
+        //trust为植入在操作系统内部的信任
+        for(id serverKey in [self publicKeyChainForTrust:trust])
+        {
+            for(id keyObj in self.pubKeys)
+            {
+                if([serverKey isEqual:keyObj])
+                {
                     status = YES;
                     break;
                 }
             }
         }
-    } else {
+    } else
+    {
+        //不使用公钥的情况
+        
+        //得到证书信任链条
         NSArray *serverCerts = [self certificateChainForTrust:trust];
         NSMutableArray *collect = [NSMutableArray arrayWithCapacity:self.certificates.count];
-        for(NSData *data in self.certificates) {
+        for(NSData *data in self.certificates)
+        {
             [collect addObject:CFBridgingRelease(SecCertificateCreateWithData(nil,(__bridge CFDataRef)data))];
         }
+        //
         SecTrustSetAnchorCertificates(trust,(__bridge CFArrayRef)collect);
         SecTrustResultType result = 0;
+        //在result上体现出对trust的判断结果
         SecTrustEvaluate(trust,&result);
-        if(result == kSecTrustResultUnspecified || result == kSecTrustResultProceed) {
+        if(result == kSecTrustResultUnspecified || result == kSecTrustResultProceed)
+        {
             NSInteger trustedCount = 0;
-            for(NSData *serverData in serverCerts) {
-                for(NSData *certData in self.certificates) {
-                    if([certData isEqualToData:serverData]) {
+            for(NSData *serverData in serverCerts)
+            {
+                //
+                for(NSData *certData in self.certificates)
+                {
+                    //判断来自severData中的证书和本地来自操作系统的证书比较
+                    if([certData isEqualToData:serverData])
+                    {
                         trustedCount++;
                         break;
                     }
                 }
             }
+            //如果能全部对号入座地相等
             if(trustedCount == serverCerts.count) {
                 status = YES;
             }
@@ -225,8 +255,11 @@
     return status;
 }
 /////////////////////////////////////////////////////////////////////////////
-- (SecKeyRef)extractPublicKey:(NSData*)data {
+//制造SecKeyRef，通过证书中的NSData对象得到公钥
+- (SecKeyRef)extractPublicKey:(NSData*)data
+{
     SecCertificateRef possibleKey = SecCertificateCreateWithData(nil,(__bridge CFDataRef)data);
+    //得到一个信任的事务对象
     SecPolicyRef policy = SecPolicyCreateBasicX509();
     SecKeyRef key = [self extractPublicKeyFromCert:possibleKey policy:policy];
     CFRelease(policy);
@@ -245,7 +278,8 @@
     return key;
 }
 /////////////////////////////////////////////////////////////////////////////
-- (NSArray*)certificateChainForTrust:(SecTrustRef)trust {
+- (NSArray*)certificateChainForTrust:(SecTrustRef)trust
+{
     NSMutableArray *collect = [NSMutableArray array];
     for(int i = 0; i < SecTrustGetCertificateCount(trust); i++) {
         SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust,i);

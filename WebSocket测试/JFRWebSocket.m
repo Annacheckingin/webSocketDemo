@@ -216,7 +216,11 @@ static const size_t  JFRMaxFrameSize        = 32;
 
 
 //Uses CoreFoundation to build a HTTP request to send over TCP stream.
-- (void)createHTTPRequest {
+- (void)createHTTPRequest
+{
+    //下方是基于CFNetwork的API,同NSURLconnection的API相比更加复杂，需要手工添加http头和cookies等信息
+    //CFNetwork是建立在coreFoundation的CFSocket和CFStream的基础上的
+    
     //利用self.url属性来进行创造CFURLRef对象
     CFURLRef url = CFURLCreateWithString(kCFAllocatorDefault, (CFStringRef)self.url.absoluteString, NULL);
     //设定HTTP的请求方式
@@ -379,12 +383,24 @@ static const size_t  JFRMaxFrameSize        = 32;
 
 /////////////////////////////////////////////////////////////////////////////
 - (void)stream:(NSStream *)aStream handleEvent:(NSStreamEvent)eventCode {
-    if(self.security && !self.certValidated && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
+    /*
+        NSStreamEventNone = 0,
+        NSStreamEventOpenCompleted = 1UL << 0,
+        NSStreamEventHasBytesAvailable = 1UL << 1,
+        NSStreamEventHasSpaceAvailable = 1UL << 2,
+        NSStreamEventErrorOccurred = 1UL << 3,
+        NSStreamEventEndEncountered = 1UL << 4
+     **/
+    if(self.security && !self.certValidated && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable))
+    {
+        //引出SSL的peerTrust与主机名
         SecTrustRef trust = (__bridge SecTrustRef)([aStream propertyForKey:(__bridge_transfer NSString *)kCFStreamPropertySSLPeerTrust]);
         NSString *domain = [aStream propertyForKey:(__bridge_transfer NSString *)kCFStreamSSLPeerName];
-        if([self.security isValid:trust domain:domain]) {
+        if([self.security isValid:trust domain:domain])
+        {
             self.certValidated = YES;
-        } else {
+        } else
+        {
             [self disconnectStream:[self errorWithDetail:@"Invalid SSL certificate" code:1]];
             return;
         }
@@ -397,7 +413,8 @@ static const size_t  JFRMaxFrameSize        = 32;
             break;
             
         case NSStreamEventHasBytesAvailable:
-            if(aStream == self.inputStream) {
+            if(aStream == self.inputStream)
+            {
                 [self processInputStream];
             }
             break;
@@ -438,10 +455,12 @@ static const size_t  JFRMaxFrameSize        = 32;
 /////////////////////////////////////////////////////////////////////////////
 - (void)processInputStream {
     @autoreleasepool {
+        //BuFFer_mAX=4096，为2的12次方
         uint8_t buffer[BUFFER_MAX];
         NSInteger length = [self.inputStream read:buffer maxLength:BUFFER_MAX];
         if(length > 0) {
-            if(!self.isConnected) {
+            if(!self.isConnected)
+            {
                 CFIndex responseStatusCode;
                 BOOL status = [self processHTTP:buffer length:length responseStatusCode:&responseStatusCode];
 #if defined(DEBUG)
@@ -455,7 +474,8 @@ static const size_t  JFRMaxFrameSize        = 32;
                 if(status == NO) {
                     [self doDisconnect:[self errorWithDetail:@"Invalid HTTP upgrade" code:1 userInfo:@{@"HTTPResponseStatusCode" : @(responseStatusCode)}]];
                 }
-            } else {
+            } else
+            {
                 BOOL process = NO;
                 if(self.inputQueue.count == 0) {
                     process = YES;
