@@ -514,24 +514,34 @@ static const size_t  JFRMaxFrameSize        = 32;
     int k = 0;
     //下方为找到body的主体
     NSInteger totalSize = 0;
-    for(int i = 0; i < bufferLen; i++) {
-        if(buffer[i] == CRLFBytes[k]) {
+    for(int i = 0; i < bufferLen; i++)
+    {
+        if(buffer[i] == CRLFBytes[k])
+        {
             k++;
-            if(k == 3) {
+            if(k == 3)
+            {
+                //指向body的开头
                 totalSize = i + 1;
                 break;
             }
-        } else {
+        } else
+        {
             k = 0;
         }
     }
-    //
-    if(totalSize > 0) {
+    //如果存在请求头--跳过了
+    if(totalSize > 0)
+    {
+        //第二个参数是字节数,此处的大小为一知道最后一个'\n'的长度
         BOOL status = [self validateResponse:buffer length:totalSize responseStatusCode:responseStatusCode];
+        //如果的确是websocket的回应（http的格式）
         if (status == YES) {
+            //已经建立好了
             _isConnected = YES;
             __weak typeof(self) weakSelf = self;
-            dispatch_async(self.queue,^{
+            dispatch_async(self.queue,^
+            {
                 if([self.delegate respondsToSelector:@selector(websocketDidConnect:)]) {
                     [weakSelf.delegate websocketDidConnect:self];
                 }
@@ -540,8 +550,12 @@ static const size_t  JFRMaxFrameSize        = 32;
                 }
             });
             totalSize += 1; //skip the last \n
+            //bufferLen为已经读取到的字节；然后totalSize为2,剩下的为主体信息
             NSInteger  restSize = bufferLen-totalSize;
-            if(restSize > 0) {
+            //假如还存在主体信息
+            if(restSize > 0)
+            {
+                //totalSize为2，表示缓存区+2个字节的大小
                 [self processRawMessage:(buffer+totalSize) length:restSize];
             }
         }
@@ -553,17 +567,21 @@ static const size_t  JFRMaxFrameSize        = 32;
 //Validate the HTTP is a 101, as per the RFC spec.
 - (BOOL)validateResponse:(uint8_t *)buffer length:(NSInteger)bufferLen responseStatusCode:(CFIndex*)responseStatusCode {
     CFHTTPMessageRef response = CFHTTPMessageCreateEmpty(kCFAllocatorDefault, NO);
+    //
     CFHTTPMessageAppendBytes(response, buffer, bufferLen);
+    //
     *responseStatusCode = CFHTTPMessageGetResponseStatusCode(response);
     BOOL status = ((*responseStatusCode) == kJFRInternalHTTPStatusWebSocket)?(YES):(NO);
-    if(status == NO) {
+    if(status == NO)
+    {
         CFRelease(response);
         return NO;
     }
     NSDictionary *headers = (__bridge_transfer NSDictionary *)(CFHTTPMessageCopyAllHeaderFields(response));
     NSString *acceptKey = headers[headerWSAcceptName];
     CFRelease(response);
-    if(acceptKey.length > 0) {
+    if(acceptKey.length > 0)
+    {
         return YES;
     }
     return NO;
