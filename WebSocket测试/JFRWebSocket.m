@@ -138,7 +138,7 @@ static const size_t  JFRMaxFrameSize        = 32;
 /////////////////////////////////////////////////////////////////////////////
 //Exposed method for connecting to URL provided in init method.
 - (void)connect {
-    //如果已经链接好了，那么直接返回
+    //如果本对象已经s初始化好了，那么直接返回
     if(self.isCreated)
     {
         
@@ -146,7 +146,7 @@ static const size_t  JFRMaxFrameSize        = 32;
     }
     
     __weak typeof(self) weakSelf = self;
-    //
+    //防止死锁
     dispatch_async(self.queue, ^
     {
         weakSelf.didDisconnect = NO;
@@ -159,6 +159,7 @@ static const size_t  JFRMaxFrameSize        = 32;
         weakSelf.isCreated = YES;
         //进行连接前的http请求并且之后升级为websocket链接
       [weakSelf createHTTPRequest];
+        //下方是对上面异步调用的一种保险的做法
         weakSelf.isCreated = NO;
     });
 }
@@ -456,10 +457,12 @@ static const size_t  JFRMaxFrameSize        = 32;
 /////////////////////////////////////////////////////////////////////////////
 - (void)processInputStream {
     @autoreleasepool {
-        //BuFFer_mAX=4096，为2的12次方
+        //BuFFer_mAX=4096，为2的12次方->4k的大小
         uint8_t buffer[BUFFER_MAX];
+        //返回的值为字节数
         NSInteger length = [self.inputStream read:buffer maxLength:BUFFER_MAX];
         if(length > 0) {
+            //处理websocket握手的阶段
             if(!self.isConnected)
             {
                 CFIndex responseStatusCode;
@@ -509,6 +512,7 @@ static const size_t  JFRMaxFrameSize        = 32;
 //Finds the HTTP Packet in the TCP stream, by looking for the CRLF.
 - (BOOL)processHTTP:(uint8_t*)buffer length:(NSInteger)bufferLen responseStatusCode:(CFIndex*)responseStatusCode {
     int k = 0;
+    //下方为找到body的主体
     NSInteger totalSize = 0;
     for(int i = 0; i < bufferLen; i++) {
         if(buffer[i] == CRLFBytes[k]) {
@@ -521,6 +525,7 @@ static const size_t  JFRMaxFrameSize        = 32;
             k = 0;
         }
     }
+    //
     if(totalSize > 0) {
         BOOL status = [self validateResponse:buffer length:totalSize responseStatusCode:responseStatusCode];
         if (status == YES) {
