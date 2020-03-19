@@ -549,7 +549,7 @@ static const size_t  JFRMaxFrameSize        = 32;
                     weakSelf.onConnect();
                 }
             });
-             //考虑请求头和请求体之间的空行-->'\n'
+             //考虑请求头和请求体之间的空行-->'\n'，跳过他指向正文开端
             totalSize += 1; //skip the last \n
            
             NSInteger  restSize = bufferLen-totalSize;
@@ -557,6 +557,7 @@ static const size_t  JFRMaxFrameSize        = 32;
             if(restSize > 0)
             {
                 //totalSize为2，表示缓存区+2个字节的大小
+                //处理的指针已经指向了正文的开端
                 [self processRawMessage:(buffer+totalSize) length:restSize];
             }
         }
