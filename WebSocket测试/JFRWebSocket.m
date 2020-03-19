@@ -549,8 +549,9 @@ static const size_t  JFRMaxFrameSize        = 32;
                     weakSelf.onConnect();
                 }
             });
+             //考虑请求头和请求体之间的空行-->'\n'
             totalSize += 1; //skip the last \n
-            //bufferLen为已经读取到的字节；然后totalSize为2,剩下的为主体信息
+           
             NSInteger  restSize = bufferLen-totalSize;
             //假如还存在主体信息
             if(restSize > 0)
