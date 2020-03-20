@@ -589,32 +589,58 @@ static const size_t  JFRMaxFrameSize        = 32;
     return NO;
 }
 /////////////////////////////////////////////////////////////////////////////
+//处理消息的主体
 -(void)processRawMessage:(uint8_t*)buffer length:(NSInteger)bufferLen {
+    //从readStack中读取数据
     JFRResponse *response = [self.readStack lastObject];
-    if(response && bufferLen < 2) {
+    //如果readStack中还存在数据，并且这个新到的数据长度小于2个字节
+    if(response && bufferLen < 2)
+    {
+        //用fragBuffer来接受这个小数据
         self.fragBuffer = [NSData dataWithBytes:buffer length:bufferLen];
         return;
     }
-    if(response.bytesLeft > 0) {
+    //response不完整
+    if(response.bytesLeft > 0)
+    {
         NSInteger len = response.bytesLeft;
+        //得到完全新的response消息
         NSInteger extra =  bufferLen - response.bytesLeft;
-        if(response.bytesLeft > bufferLen) {
+        //如果上一个回应的剩下的字节书大于此处接收到的字节数
+        if(response.bytesLeft > bufferLen)
+        {
+            //此处的len变为-bufferLen->即为已经读到的字节数
             len = bufferLen;
             extra = 0;
         }
+        //若不走上方的if判断句，则说明到达的数据不止当前的response所含有的数据
+        //若走了的话，那么说明没有来完数据，则len变为bufferLen
+        //减去已经得到的字节数据
         response.bytesLeft -= len;
+        //response的buffer->一个NSMutableData对象，将剩下的缺失的字节收入囊中
         [response.buffer appendData:[NSData dataWithBytes:buffer length:len]];
+        //
         [self processResponse:response];
+        //extra的byte指的是另一个response对象的内容
+        //相减之后得到的就是目前有的字节信息
+        //计算出到extra数据应该跳过的offset
         NSInteger offset = bufferLen - extra;
-        if(extra > 0) {
+        if(extra > 0)
+        {
+            //指针移动-》并且指出属于另外一个response的数据的长度
             [self processExtra:(buffer+offset) length:extra];
         }
         return;
-    } else {
-        if(bufferLen < 2) { // we need at least 2 bytes for the header
+    }
+    else
+    {
+        //当当前的response对象没有剩余需要的字节数了之后
+        if(bufferLen < 2)
+        { // we need at least 2 bytes for the header
             self.fragBuffer = [NSData dataWithBytes:buffer length:bufferLen];
             return;
         }
+        //对数据的解码操作
         BOOL isFin = (JFRFinMask & buffer[0]);
         uint8_t receivedOpcode = (JFROpCodeMask & buffer[0]);
         BOOL isMasked = (JFRMaskMask & buffer[1]);
@@ -747,26 +773,38 @@ static const size_t  JFRMaxFrameSize        = 32;
     
 }
 /////////////////////////////////////////////////////////////////////////////
-- (void)processExtra:(uint8_t*)buffer length:(NSInteger)bufferLen {
-    if(bufferLen < 2) {
+- (void)processExtra:(uint8_t*)buffer length:(NSInteger)bufferLen
+{
+    if(bufferLen < 2)
+    {
+        //如果来到的数据小于2个字节->那么又fragBuffer来接受
         self.fragBuffer = [NSData dataWithBytes:buffer length:bufferLen];
-    } else {
+    } else
+    {
         [self processRawMessage:buffer length:bufferLen];
     }
 }
 /////////////////////////////////////////////////////////////////////////////
-- (BOOL)processResponse:(JFRResponse*)response {
-    if(response.isFin && response.bytesLeft <= 0) {
+- (BOOL)processResponse:(JFRResponse*)response
+{
+    //如果Fin的标志位还在，并且此response的未接受的字节为<=0.
+    if(response.isFin && response.bytesLeft <= 0)
+    {
+        //得到response的NSData部分
         NSData *data = response.buffer;
-        if(response.code == JFROpCodePing) {
+        if(response.code == JFROpCodePing)
+        {
             [self dequeueWrite:response.buffer withCode:JFROpCodePong];
-        } else if(response.code == JFROpCodeTextFrame) {
+        }
+        else if(response.code == JFROpCodeTextFrame)
+        {
             NSString *str = [[NSString alloc] initWithData:response.buffer encoding:NSUTF8StringEncoding];
             if(!str) {
                 [self writeError:JFRCloseCodeEncoding];
                 return NO;
             }
             __weak typeof(self) weakSelf = self;
+            //将得到的文本信息通知给代理对象
             dispatch_async(self.queue,^{
                 if([weakSelf.delegate respondsToSelector:@selector(websocket:didReceiveMessage:)]) {
                     [weakSelf.delegate websocket:weakSelf didReceiveMessage:str];
@@ -775,10 +813,13 @@ static const size_t  JFRMaxFrameSize        = 32;
                     weakSelf.onText(str);
                 }
             });
-        } else if(response.code == JFROpCodeBinaryFrame) {
+        }
+        else if(response.code == JFROpCodeBinaryFrame)
+        {
             __weak typeof(self) weakSelf = self;
             dispatch_async(self.queue,^{
-                if([weakSelf.delegate respondsToSelector:@selector(websocket:didReceiveData:)]) {
+                if([weakSelf.delegate respondsToSelector:@selector(websocket:didReceiveData:)])
+                {
                     [weakSelf.delegate websocket:weakSelf didReceiveData:data];
                 }
                 if(weakSelf.onData) {
@@ -786,6 +827,7 @@ static const size_t  JFRMaxFrameSize        = 32;
                 }
             });
         }
+        //消息已经等待被处理了，所以需要在readstack中移除掉它
         [self.readStack removeLastObject];
         return YES;
     }
